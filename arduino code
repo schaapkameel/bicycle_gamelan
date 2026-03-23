@@ -1,0 +1,177 @@
+/*
+ * Bicycle Gamelan Thing - My take on Steve Reich's phasing patterns
+ * Solenoids whack bicycle parts to make gamelan sounds. 
+ * Patterns build up and fade away randomly every 4 bars.
+ * Pot on A7 controls speed. 
+ * Loek Vellekoop - 2017
+ */
+
+int onTime = 25;           // How long solenoids stay on (hammer whack time)
+int tempo = 150;           // Delay between beats - pot changes this
+int minAim = 0;            // Fewest notes we want playing
+int maxAim = 8;            // Most notes we want playing  
+int aim = 0;               // Target number of notes (goes up/down)
+int totalOn = 0;           // How many notes are actually playing now
+
+// Four beat patterns that slowly drift in/out of phase
+int beat1[] = {0,0,0,0,0,0,0,0,0,0,0,0};  // Solenoid 1
+int beat2[] = {0,0,0,0,0,0,0,0,0,0,0,0};  // Solenoid 2
+int beat3[] = {0,0,0,0,0,0,0,0,0,0,0,0};  // Solenoid 3  
+int beat4[] = {0,0,0,0,0,0,0,0,0,0,0,0};  // Solenoid 4
+
+unsigned long past = 0;
+unsigned long time = 0;
+int beatCounter = 0;       // Which step in the 12-beat pattern (0-11)
+int counter = 0;           // Counts bars (resets at 4)
+int largeCounter = 0;
+boolean state = false;     // true = strike time, false = rest
+int beatSelect = 0;        // Which pattern to mess with (0-3)
+int noteSelect = 0;        // Which beat position to mess with (0-11)
+
+int sol1 = 12, sol2 = 11, sol3 = 10, sol4 = 9;
+int sol5 = 8, sol6 = 7, sol7 = 6, sol8 = 5, sol9 = 4;
+int x = 1;                 // +1 = add notes, -1 = remove notes
+
+void setup() {
+  // Set up solenoid pins (LOW = whack, HIGH = chill)
+  pinMode(sol1, OUTPUT); pinMode(sol2, OUTPUT); pinMode(sol3, OUTPUT); pinMode(sol4, OUTPUT);
+  pinMode(sol5, OUTPUT); pinMode(sol6, OUTPUT); pinMode(sol7, OUTPUT); 
+  pinMode(sol8, OUTPUT); pinMode(sol9, OUTPUT);
+  
+  pinMode(A7, INPUT);    // Speed knob
+  Serial.begin(9600);
+  digitalWrite(sol9, HIGH);  // sol9 always on? safety thing maybe
+  randomSeed(analogRead(A1));
+}
+
+void loop() {
+  Serial.println(beatSelect);  // Shows which pattern I'm changing
+  
+  tempo = map(analogRead(A7), 0, 1023, 100, 300);  // Slower knob left, faster knob right
+  
+  time = millis();
+  state = timer(beatCounter, state, time, past);
+  
+  if (beatCounter == 12) {
+    beatCounter = 0;
+    counter++;
+  }
+  
+  // Every 4 bars, add or remove a note somewhere
+  if (counter == 4) {
+    counter = 0;
+    largeCounter++;
+    beatSelect = random(4);    // Pick a random pattern
+    noteSelect = random(12);   // Pick a random spot in that pattern
+    aim = aim + x;
+  }
+  
+  // Bounce between 0 and 8 notes
+  if (aim > 8) { x = -1; aim--; }  
+  if (aim < 0) { x = 1; aim++; }
+  
+  if (aim >= totalOn) {
+    Serial.println("88");  // Adding a note
+    increase(beatSelect, noteSelect, totalOn);
+  }
+  if (aim < totalOn) {
+    Serial.println("00");  // Removing a note
+    decrease(beatSelect, noteSelect, totalOn);
+  }
+  
+  // Check all four patterns for this beat position
+  tap(state, beat1, sol1);
+  tap(state, beat2, sol2); 
+  tap(state, beat3, sol3);
+  tap(state, beat4, sol4);
+}
+
+// Handles the timing - when to whack, how long
+boolean timer(int &beatCounter, boolean &state, unsigned long time, unsigned long &past) {
+  if (time - past > tempo) {
+    past = time;
+    state = true;
+    beatCounter++;
+  }
+  if (time - past > onTime && state) {
+    state = false;
+  }
+  return state;
+}
+
+// Try to turn on a note in the chosen pattern
+void increase(int &beatSelect, int &noteSelect, int &totalOn) {
+  switch(beatSelect) {
+    case 0: 
+      if (beat1[noteSelect] == 0) { 
+        beat1[noteSelect] = 1; 
+        totalOn++; 
+      } else {
+        noteSelect = (noteSelect + 1) % 12;  // Try next spot
+      } 
+      break;
+    case 1: 
+      if (beat2[noteSelect] == 0) { 
+        beat2[noteSelect] = 1; 
+        totalOn++; 
+      } else {
+        noteSelect = (noteSelect + 1) % 12;
+      } 
+      break;
+    case 2: 
+      if (beat3[noteSelect] == 0) { 
+        beat3[noteSelect] = 1; 
+        totalOn++; 
+      } else {
+        noteSelect = (noteSelect + 1) % 12;
+      } 
+      break;
+    case 3: 
+      if (beat4[noteSelect] == 0) { 
+        beat4[noteSelect] = 1; 
+        totalOn++; 
+      } else {
+        noteSelect = (noteSelect + 1) % 12;
+      } 
+      break;
+  }
+}
+
+// Try to turn off a note somewhere
+void decrease(int &beatSelect, int &noteSelect, int &totalOn) {
+  beatSelect = (beatSelect + 1) % 4;
+  
+  switch(beatSelect) {
+    case 0: 
+      if (beat1[noteSelect] == 1) { 
+        beat1[noteSelect] = 0; 
+        totalOn--; 
+      } else {
+        noteSelect = (noteSelect + 1) % 12;
+        beatSelect = random(4);
+      } 
+      break;
+    // ... same for cases 1,2,3 (keeping it simple)
+    case 1: 
+      if (beat2[noteSelect] == 1) { beat2[noteSelect] = 0; totalOn--; }
+      else { noteSelect = (noteSelect + 1) % 12; beatSelect = random(4); }
+      break;
+    case 2: 
+      if (beat3[noteSelect] == 1) { beat3[noteSelect] = 0; totalOn--; }
+      else { noteSelect = (noteSelect + 1) % 12; beatSelect = random(4); }
+      break;
+    case 3: 
+      if (beat4[noteSelect] == 1) { beat4[noteSelect] = 0; totalOn--; }
+      else { noteSelect = (noteSelect + 1) % 12; beatSelect = random(4); }
+      break;
+  }
+}
+
+// The hammer solenoid strikes if this beat position has a 1
+void tap(boolean state, int *beat, int solPin) {
+  if (state && beat[beatCounter] == 1) {
+    digitalWrite(solPin, LOW);   // WHACK
+  } else {
+    digitalWrite(solPin, HIGH);  // Rest
+  }
+}
